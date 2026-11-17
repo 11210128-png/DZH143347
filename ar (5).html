@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>泡泡水能量 AR</title>
+  <!-- 僅載入純淨版 A-Frame 1.5.0，確保 3D 場景與相機穩定不衝突 -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #05080f;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Noto Sans TC", sans-serif;
+      color: #ffffff;
+    }
+
+    /* 預覽模式深海徑向光暈背景（開啟實景相機後自動透明化） */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 44%, rgba(0, 140, 255, 0.22) 0%, rgba(5, 12, 26, 0.92) 65%, #03060c 100%);
+      z-index: -2;
+      transition: opacity 0.35s ease;
+    }
+    body.ar-active {
+      background-color: transparent;
+    }
+    body.ar-active::before {
+      opacity: 0;
+    }
+
+    /* 實景相機全螢幕視訊背景層 */
+    #ar-camera-feed {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: -1;
+      display: none;
+      background: #000000;
+    }
+
+    /* A-Frame 3D 畫布全螢幕覆蓋 */
+    a-scene {
+      position: fixed !important;
+      inset: 0;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 10;
+    }
+
+    /* ==========================================
+       左上角標題徽章
+       ========================================== */
+    #top-left-badge {
+      position: fixed;
+      top: 18px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      background: rgba(12, 22, 38, 0.85);
+      border: 1px solid rgba(0, 210, 255, 0.38);
+      padding: 8px 14px 8px 10px;
+      border-radius: 14px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+      z-index: 1000;
+    }
+    .badge-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #29e0ff, #0066ff);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 14px rgba(0, 210, 255, 0.75);
+      flex-shrink: 0;
+    }
+    .badge-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+    }
+    .badge-sub {
+      font-size: 9.5px;
+      color: #66d9ff;
+      letter-spacing: 0.9px;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    /* ==========================================
+       右上角控制按鈕區
+       ========================================== */
+    #top-right-controls {
+      position: fixed;
+      top: 18px;
+      right: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      z-index: 1000;
+      max-width: 55vw;
+    }
+    .top-btn {
+      background: rgba(12, 22, 38, 0.86);
+      border: 1px solid rgba(0, 210, 255, 0.45);
+      color: #70e5ff;
+      padding: 9px 13px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .top-btn:active {
+      transform: scale(0.95);
+    }
+    .top-btn.active {
+      background: linear-gradient(135deg, #3ae8ff, #009dff);
+      color: #021324;
+      border-color: #9ef6ff;
+      box-shadow: 0 0 18px rgba(0, 185, 255, 0.85);
+    }
+    #btn-recenter {
+      display: none;
+      background: rgba(14, 34, 58, 0.92);
+      border-color: rgba(85, 242, 255, 0.75);
+      color: #a8f8ff;
+    }
+
+    /* ==========================================
+       非侵入式系統狀態訊息框（取代原生 alert）
+       ========================================== */
+    #status-toast {
+      position: fixed;
+      top: 76px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-10px);
+      background: rgba(8, 20, 36, 0.92);
+      border: 1px solid rgba(56, 214, 255, 0.65);
+      color: #def9ff;
+      padding: 9px 16px;
+      border-radius: 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.45;
+      text-align: center;
+      max-width: 88vw;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 14px rgba(0, 195, 255, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 1100;
+    }
+    #status-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ==========================================
+       全螢幕水流「沖刷」雙層波浪特效層
+       ========================================== */
+    #wash-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 900;
+      overflow: hidden;
+    }
+
+    .wash-wave {
+      position: absolute;
+      left: -10%;
+      width: 120%;
+      height: 130vh;
+      bottom: -140vh;
+      background: linear-gradient(
+        180deg,
+        rgba(225, 253, 255, 0.88) 0%,
+        rgba(56, 214, 255, 0.56) 8%,
+        rgba(0, 145, 255, 0.36) 35%,
+        rgba(0, 90, 200, 0.16) 75%,
+        transparent 100%
+      );
+      border-top: 4px solid #ffffff;
+      border-radius: 45% 48% 0 0 / 60px 80px 0 0;
+      box-shadow:
+        0 -15px 40px rgba(0, 225, 255, 0.82),
+        inset 0 20px 50px rgba(255, 255, 255, 0.68);
+      opacity: 0;
+    }
+
+    .wash-wave.secondary {
+      border-radius: 52% 42% 0 0 / 75px 50px 0 0;
+      background: linear-gradient(
+        180deg,
+        rgba(140, 245, 255, 0.62) 0%,
+        rgba(0, 175, 255, 0.32) 25%,
+        transparent 80%
+      );
+      border-top: 2px solid rgba(180, 250, 255, 0.82);
+    }
+
+    #wash-overlay.washing .wash-wave.primary {
+      animation: waveWashUp 1.15s cubic-bezier(0.22, 0.8, 0.36, 1) forwards;
+    }
+
+    #wash-overlay.washing .wash-wave.secondary {
+      animation: waveWashUp 1.3s cubic-bezier(0.22, 0.8, 0.36, 1) 0.12s forwards;
+    }
+
+    @keyframes waveWashUp {
+      0% {
+        bottom: -135vh;
+        opacity: 0.95;
+        transform: rotate(-1.5deg);
+      }
+      50% {
+        opacity: 0.92;
+        transform: rotate(1.5deg);
+      }
+      100% {
+        bottom: 115vh;
+        opacity: 0;
+        transform: rotate(-1deg);
+      }
+    }
+
+    /* 沖刷時伴隨上衝的氣泡群 */
+    .wash-bubble {
+      position: absolute;
+      bottom: -30px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #ffffff, rgba(120, 240, 255, 0.55) 60%, rgba(0, 160, 255, 0.82));
+      border: 1px solid rgba(255, 255, 255, 0.88);
+      box-shadow: 0 0 10px rgba(0, 220, 255, 0.8);
+      animation: bubbleSurge var(--dur, 1.1s) ease-out forwards;
+    }
+
+    @keyframes bubbleSurge {
+      0% {
+        transform: translateY(0) scale(0.5);
+        opacity: 0;
+      }
+      20% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(-115vh) translateX(var(--drift, 20px)) scale(1.2);
+        opacity: 0;
+      }
+    }
+
+    /* ==========================================
+       中央藍色發光數字與招式爆發橫幅
+       ========================================== */
+    #burst-overlay {
+      position: fixed;
+      top: 46%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.6);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 950;
+      width: 100%;
+      text-align: center;
+    }
+
+    #burst-overlay.show {
+      animation: burstPop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .burst-main-text {
+      font-size: clamp(32px, 6.8vw, 58px);
+      font-weight: 900;
+      letter-spacing: 3px;
+      color: #e6fbff;
+      text-shadow:
+        0 0 12px #00e5ff,
+        0 0 28px #0099ff,
+        0 0 50px #0066ff,
+        0 4px 10px rgba(0, 15, 35, 0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      white-space: nowrap;
+    }
+
+    .burst-drop {
+      color: #38d6ff;
+      filter: drop-shadow(0 0 12px #00c8ff);
+      font-size: 0.95em;
+    }
+
+    .burst-sub-pill {
+      margin-top: 8px;
+      padding: 6px 20px;
+      background: rgba(6, 18, 32, 0.88);
+      border: 1.5px solid rgba(56, 214, 255, 0.68);
+      border-radius: 999px;
+      font-size: clamp(11.5px, 2.2vw, 15px);
+      font-weight: 800;
+      letter-spacing: 2.2px;
+      color: #70ebff;
+      box-shadow: 0 0 18px rgba(0, 195, 255, 0.55);
+    }
+
+    @keyframes burstPop {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.45);
+      }
+      12% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.12);
+      }
+      22% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      78% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.02);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -56%) scale(1.08);
+      }
+    }
+
+    /* ==========================================
+       底部主控發動按鈕與操作提示
+       ========================================== */
+    #bottom-controls {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+      width: 90%;
+      max-width: 360px;
+    }
+
+    #btn-trigger {
+      width: 100%;
+      padding: 14px 22px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #031526;
+      background: linear-gradient(90deg, #52f2ff, #00aaff);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      border-radius: 16px;
+      box-shadow: 0 6px 25px rgba(0, 200, 255, 0.65);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    #btn-trigger:active {
+      transform: scale(0.96);
+    }
+
+    .hint-pill {
+      background: rgba(12, 22, 38, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #c2e2f5;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      text-align: center;
+    }
+
+    .hint-pill span {
+      color: #4df0ff;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左上角標題徽章 -->
+  <div id="top-left-badge">
+    <div class="badge-icon">💧</div>
+    <div>
+      <div class="badge-title">泡泡水能量 AR</div>
+      <div class="badge-sub">BUBBLE WATER ENERGY v2.0</div>
+    </div>
+  </div>
+
+  <!-- 右上角控制按鈕區 -->
+  <div id="top-right-controls">
+    <button id="btn-recenter" class="top-btn" title="將卡片重新對準畫面中央">🎯 校正位置</button>
+    <button id="btn-ar-toggle" class="top-btn">📷 開啟實景 AR</button>
+    <button id="btn-reset" class="top-btn" title="重置特效">↻</button>
+  </div>
+
+  <!-- 系統提示框 -->
+  <div id="status-toast"></div>
+
+  <!-- 實景相機視訊層 -->
+  <video id="ar-camera-feed" autoplay playsinline muted></video>
+
+  <!-- 水流沖刷雙層波浪特效層 -->
+  <div id="wash-overlay">
+    <div class="wash-wave primary"></div>
+    <div class="wash-wave secondary"></div>
+    <div id="wash-bubbles-layer"></div>
+  </div>
+
+  <!-- 中央藍色數字爆發橫幅 -->
+  <div id="burst-overlay">
+    <div class="burst-main-text">
+      <span class="burst-drop">💧</span>
+      <span id="burst-number">100,000 PSI</span>
+      <span class="burst-drop">💧</span>
+    </div>
+    <div class="burst-sub-pill" id="burst-sub">BUBBLE WASH · STATUS CURED</div>
+  </div>
+
+  <!-- 底部操作按鈕與提示 -->
+  <div id="bottom-controls">
+    <button id="btn-trigger">🌊 發動水能量・泡泡沖刷</button>
+    <div class="hint-pill">👆 在畫面中<span>「用手指點擊卡片」</span>即可發動！</div>
+  </div>
+
+  <!-- 純淨 A-Frame 1.5.0 3D 場景（移除 MindAR 以杜絕模型隱藏衝突） -->
+  <a-scene
+    id="ar-scene"
+    embedded
+    renderer="alpha: true; antialias: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    cursor="rayOrigin: mouse"
+    raycaster="objects: .clickable">
+
+    <!-- 內建資源管理區：同步綁定高解析卡牌貼圖，絕不發生材質遺失 -->
+    <a-assets timeout="10000">
+      <img id="card-tex" alt="Bubble Energy Card" />
+    </a-assets>
+
+    <!-- 固定視角相機（關閉預設旋轉搶奪，由下方陀螺儀與慣性引擎精準控制） -->
+    <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+
+    <!-- 場景光源 -->
+    <a-light type="ambient" color="#ffffff" intensity="1.15"></a-light>
+    <a-light type="point" color="#00e5ff" intensity="2.2" distance="6" position="0 0.2 -1.2"></a-light>
+
+    <!-- 永遠置中於鏡頭前方的穩定錨點容器 -->
+    <a-entity id="ar-anchor" position="0 0.12 -2.2">
+      <!-- 負責接收陀螺儀空間視差與觸控旋轉的運動群組 -->
+      <a-entity id="motion-rig" position="0 0 0" rotation="0 0 0">
+
+        <!-- 3D 能量卡主體（無藍色背板，直接綁定 #card-tex 貼圖） -->
+        <a-plane
+          id="card-plane"
+          class="clickable"
+          width="1.22"
+          height="1.702"
+          src="#card-tex"
+          material="shader: flat; side: double; transparent: false"
+          animation__idle="property: rotation; from: -2.5 -4 0; to: 2.5 4 0; dir: alternate; loop: true; dur: 3400; easing: easeInOutSine">
+        </a-plane>
+
+        <!-- 懸浮於卡片前方的 3D 水能量特效群組 -->
+        <a-entity id="fx-group" position="0 0 0.08">
+          <!-- 發光水能量核心球體 -->
+          <a-sphere
+            id="water-core"
+            radius="0.28"
+            color="#ffffff"
+            material="shader: flat; opacity: 0.34; transparent: true"
+            animation="property: scale; from: 0.94 0.94 0.94; to: 1.06 1.06 1.06; dir: alternate; loop: true; dur: 1400; easing: easeInOutSine">
+          </a-sphere>
+
+          <!-- 立體金屬光澤水滴圖騰 -->
+          <a-entity
+            id="water-drop-icon"
+            position="0 0.05 0.11"
+            animation="property: rotation; from: 0 -18 0; to: 0 18 0; dir: alternate; loop: true; dur: 2200; easing: easeInOutSine">
+            <a-sphere
+              radius="0.115"
+              position="0 -0.048 0"
+              color="#0077ee"
+              material="metalness: 0.82; roughness: 0.15; emissive: #0099ff; emissive-intensity: 0.72">
+            </a-sphere>
+            <a-cone
+              radius-bottom="0.114"
+              radius-top="0.005"
+              height="0.21"
+              position="0 0.068 0"
+              color="#0077ee"
+              material="metalness: 0.82; roughness: 0.15; emissive: #0099ff; emissive-intensity: 0.72">
+            </a-cone>
+          </a-entity>
+
+          <!-- 放大後的雙層動態水能量光環 (radius=0.72) -->
+          <a-torus
+            id="orbit-1"
+            radius="0.72"
+            radius-tubular="0.008"
+            rotation="65 25 0"
+            color="#80f0ff"
+            material="shader: flat; opacity: 0.92; transparent: true"
+            animation="property: rotation; from: 65 25 0; to: 65 25 360; loop: true; dur: 4500; easing: linear">
+          </a-torus>
+
+          <a-torus
+            id="orbit-2"
+            radius="0.72"
+            radius-tubular="0.008"
+            rotation="-65 -25 0"
+            color="#40c4ff"
+            material="shader: flat; opacity: 0.92; transparent: true"
+            animation="property: rotation; from: -65 -25 0; to: -65 -25 -360; loop: true; dur: 5200; easing: linear">
+          </a-torus>
+
+          <!-- 70 顆漂浮氣泡粒子容器 -->
+          <a-entity id="bubble-particles"></a-entity>
+        </a-entity>
+      </a-entity>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    // ==========================================
+    // 1. 離屏繪製高解析度「バブルエネルギー」特殊能量卡貼圖
+    //    並立即轉換為 DataURL 寫入 <img id="card-tex">
+    // ==========================================
+    function drawWaterIcon(ctx, cx, cy, scale) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.beginPath();
+      ctx.moveTo(4, -22);
+      ctx.bezierCurveTo(22, 0, 18, 22, 0, 22);
+      ctx.bezierCurveTo(-18, 22, -20, 2, 4, -22);
+      ctx.fillStyle = '#080e14';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(-3, 12, 6, 3, -0.35, 0, Math.PI * 2);
+      ctx.fillStyle = '#24a8f0';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawGlassBubble(ctx, x, y, r, angle = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      grad.addColorStop(0, 'rgba(200, 248, 255, 0.72)');
+      grad.addColorStop(0.55, 'rgba(30, 165, 235, 0.56)');
+      grad.addColorStop(0.88, 'rgba(10, 75, 130, 0.85)');
+      grad.addColorStop(1, 'rgba(210, 250, 255, 0.92)');
+
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r, r * 0.88, 0, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(220, 252, 255, 0.78)';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.38, -r * 0.32, r * 0.25, r * 0.12, -0.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function generateCardTextureAsset() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 734;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+
+      // 銀灰金屬外邊框
+      const borderGrad = ctx.createLinearGradient(0, 0, w, h);
+      borderGrad.addColorStop(0, '#e5eaee');
+      borderGrad.addColorStop(0.5, '#c4ccd3');
+      borderGrad.addColorStop(1, '#dde3e8');
+      ctx.fillStyle = borderGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      const innerX = 24, innerY = 24, innerW = w - 48, innerH = h - 48;
+      ctx.fillStyle = '#dde4ea';
+      ctx.fillRect(innerX, innerY, innerW, innerH);
+
+      // 中央插畫深海能量背景
+      const artX = 34, artY = 148, artW = w - 68, artH = 445;
+      const bgGrad = ctx.createLinearGradient(artX, artY, artX + artW, artY);
+      bgGrad.addColorStop(0, '#c8e6f5');
+      bgGrad.addColorStop(0.2, '#1d88c7');
+      bgGrad.addColorStop(0.5, '#072a4a');
+      bgGrad.addColorStop(0.8, '#1d88c7');
+      bgGrad.addColorStop(1, '#c8e6f5');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(artX, artY, artW, artH);
+
+      // 水平水波光帶
+      const stripes = [
+        { y: 170, h: 18, c: 'rgba(255,255,255,0.45)' },
+        { y: 215, h: 30, c: 'rgba(130,220,255,0.35)' },
+        { y: 280, h: 24, c: 'rgba(15,85,145,0.55)' },
+        { y: 340, h: 42, c: 'rgba(190,240,255,0.4)' },
+        { y: 410, h: 26, c: 'rgba(10,60,115,0.5)' },
+        { y: 470, h: 35, c: 'rgba(160,230,255,0.45)' },
+        { y: 535, h: 28, c: 'rgba(255,255,255,0.35)' }
+      ];
+      stripes.forEach(s => {
+        ctx.fillStyle = s.c;
+        ctx.fillRect(artX, s.y, artW, s.h);
+      });
+
+      // 旋渦光環
+      const cx = w / 2, cy = artY + artH / 2 + 4;
+      for (let i = 0; i < 6; i++) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(i * 0.55);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 235 - i * 8, 195 + i * 6, 0.3, 0, Math.PI * 2);
+        ctx.lineWidth = 14 - i * 1.5;
+        ctx.strokeStyle = i % 2 === 0 ? 'rgba(235, 248, 255, 0.65)' : 'rgba(20, 110, 175, 0.55)';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 中央水能量核心球體
+      const coreR = 165;
+      const coreGrad = ctx.createRadialGradient(cx - 35, cy - 35, 15, cx, cy, coreR);
+      coreGrad.addColorStop(0, '#5ce1ff');
+      coreGrad.addColorStop(0.55, '#139be8');
+      coreGrad.addColorStop(0.88, '#085b9e');
+      coreGrad.addColorStop(1, '#e1f7ff');
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.fillStyle = coreGrad;
+      ctx.fill();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(240, 252, 255, 0.85)';
+      ctx.stroke();
+
+      // 核心黑色水滴圖騰與反光
+      ctx.save();
+      ctx.translate(cx, cy + 4);
+      ctx.beginPath();
+      ctx.moveTo(42, -118);
+      ctx.bezierCurveTo(132, -5, 112, 112, -2, 112);
+      ctx.bezierCurveTo(-110, 112, -115, 12, 42, -118);
+      ctx.fillStyle = '#070d12';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(-18, 65, 34, 15, -0.25, 0, Math.PI * 2);
+      ctx.fillStyle = '#22a8f2';
+      ctx.fill();
+      ctx.restore();
+
+      // 裝飾玻璃泡泡群
+      drawGlassBubble(ctx, 112, 212, 56, -0.4);
+      drawGlassBubble(ctx, 68, 305, 42, 0.2);
+      drawGlassBubble(ctx, 628, 225, 48, 0.5);
+      drawGlassBubble(ctx, 658, 305, 32, -0.2);
+      drawGlassBubble(ctx, 122, 495, 58, 0.35);
+      drawGlassBubble(ctx, 615, 498, 62, -0.4);
+      drawGlassBubble(ctx, 668, 412, 34, 0.1);
+
+      // 頂部標籤列
+      const topBarGrad = ctx.createLinearGradient(0, 24, 0, 68);
+      topBarGrad.addColorStop(0, '#b8c2ca');
+      topBarGrad.addColorStop(0.5, '#8f9ba5');
+      topBarGrad.addColorStop(1, '#aeb8c0');
+      ctx.fillStyle = topBarGrad;
+      ctx.fillRect(innerX, innerY, innerW, 44);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 21px "Noto Sans JP", sans-serif';
+      ctx.fillText('特殊エネルギー', 44, 54);
+      ctx.fillText('エネルギー', 568, 54);
+
+      // 卡牌標題列
+      const titleGrad = ctx.createLinearGradient(0, 68, 0, 148);
+      titleGrad.addColorStop(0, '#eef2f5');
+      titleGrad.addColorStop(1, '#cfd7de');
+      ctx.fillStyle = titleGrad;
+      ctx.fillRect(innerX, 68, innerW, 80);
+
+      ctx.fillStyle = '#11161b';
+      ctx.font = 'bold 13px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 193, 86);
+
+      ctx.font = '900 38px "Noto Sans JP", sans-serif';
+      ctx.fillText('バブル', 54, 126);
+      drawWaterIcon(ctx, 206, 113, 0.85);
+      ctx.fillText('エネルギー', 234, 126);
+
+      // 右上角屬性圓徽章
+      ctx.beginPath();
+      ctx.arc(668, 108, 30, 0, Math.PI * 2);
+      const badgeGrad = ctx.createRadialGradient(660, 100, 4, 668, 108, 30);
+      badgeGrad.addColorStop(0, '#70e1ff');
+      badgeGrad.addColorStop(1, '#0c8ce0');
+      ctx.fillStyle = badgeGrad;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      drawWaterIcon(ctx, 668, 108, 0.95);
+
+      // 下方效果說明框
+      const textBoxY = 593, textBoxH = 342;
+      const boxGrad = ctx.createLinearGradient(0, textBoxY, 0, textBoxY + textBoxH);
+      boxGrad.addColorStop(0, '#eef2f5');
+      boxGrad.addColorStop(1, '#dce2e7');
+      ctx.fillStyle = boxGrad;
+      ctx.fillRect(innerX, textBoxY, innerW, textBoxH);
+
+      ctx.strokeStyle = '#9aa5b0';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(innerX + 2, textBoxY + 2, innerW - 4, textBoxH - 4);
+
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('このカードは、ポケモンについているかぎり、', 54, 672);
+
+      ctx.font = 'bold 11px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 55, 687);
+      drawWaterIcon(ctx, 66, 704, 0.52);
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('エネルギー1個ぶんとしてはたらく。', 82, 712);
+
+      ctx.fillText('このカードをつけている', 54, 778);
+      ctx.font = 'bold 11px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 313, 753);
+      drawWaterIcon(ctx, 324, 770, 0.52);
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('ポケモンは、特殊状態にならず、', 340, 778);
+
+      ctx.fillText('受けている特殊状態は、すべて回復する。', 54, 818);
+
+      // 底部編號與稀有度列
+      ctx.fillStyle = '#cfd7de';
+      ctx.fillRect(innerX, 935, innerW, 65);
+
+      ctx.strokeStyle = '#141a20';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(42, 952, 26, 30);
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('J', 49, 975);
+
+      ctx.fillStyle = '#141a20';
+      ctx.fillRect(78, 954, 46, 26);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 17px sans-serif';
+      ctx.fillText('M4', 87, 973);
+
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 21px sans-serif';
+      ctx.fillText('082/083  R', 138, 975);
+
+      ctx.beginPath();
+      ctx.arc(672, 966, 17, 0, Math.PI * 2);
+      ctx.fillStyle = '#139be8';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      drawWaterIcon(ctx, 672, 966, 0.55);
+
+      // 同步寫入 <img id="card-tex"> 供 A-Frame <a-plane src="#card-tex"> 立即使用
+      const cardImgAsset = document.getElementById('card-tex');
+      cardImgAsset.src = canvas.toDataURL('image/png');
+    }
+
+    // 立即生成貼圖資源（在 DOM 解析階段即完成，不產生任何非同步競爭）
+    generateCardTextureAsset();
+
+    // ==========================================
+    // 2. 生成 70 顆漂浮 3D 氣泡粒子
+    // ==========================================
+    const bubbleContainer = document.getElementById('bubble-particles');
+    function createBubbles() {
+      bubbleContainer.innerHTML = '';
+      for (let i = 0; i < 70; i++) {
+        const bubble = document.createElement('a-sphere');
+        const radius = (Math.random() * 0.018 + 0.005).toFixed(4);
+        const x = (Math.random() * 1.56 - 0.78).toFixed(2);
+        const yStart = (Math.random() * 1.5 - 0.85).toFixed(2);
+        const yEnd = (parseFloat(yStart) + 0.45 + Math.random() * 0.45).toFixed(2);
+        const z = (Math.random() * 0.35 - 0.08).toFixed(2);
+        const dur = Math.floor(Math.random() * 2400 + 2000);
+        const color = Math.random() > 0.3 ? '#80f5ff' : '#ffffff';
+
+        bubble.setAttribute('radius', radius);
+        bubble.setAttribute('position', `${x} ${yStart} ${z}`);
+        bubble.setAttribute('color', color);
+        bubble.setAttribute('material', 'shader: flat; opacity: 0.78; transparent: true');
+        bubble.setAttribute('animation__rise', {
+          property: 'position',
+          from: `${x} ${yStart} ${z}`,
+          to: `${x} ${yEnd} ${z}`,
+          dur: dur,
+          loop: true,
+          dir: 'alternate',
+          easing: 'easeInOutSine'
+        });
+        bubbleContainer.appendChild(bubble);
+      }
+    }
+    createBubbles();
+
+    // ==========================================
+    // 3. 泡泡沖刷波浪與能量爆發互動
+    // ==========================================
+    const fxGroup = document.getElementById('fx-group');
+    const cardPlane = document.getElementById('card-plane');
+    const burstOverlay = document.getElementById('burst-overlay');
+    const washOverlay = document.getElementById('wash-overlay');
+    const washBubblesLayer = document.getElementById('wash-bubbles-layer');
+    const statusToast = document.getElementById('status-toast');
+
+    let toastTimeout = null;
+    function showToast(msg, duration = 3400) {
+      statusToast.textContent = msg;
+      statusToast.classList.add('show');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        statusToast.classList.remove('show');
+      }, duration);
+    }
+
+    function triggerWashWave() {
+      washOverlay.classList.remove('washing');
+      void washOverlay.offsetWidth;
+      washOverlay.classList.add('washing');
+
+      washBubblesLayer.innerHTML = '';
+      for (let i = 0; i < 32; i++) {
+        const b = document.createElement('div');
+        b.className = 'wash-bubble';
+        const size = Math.floor(Math.random() * 24 + 8);
+        const left = Math.random() * 100;
+        const dur = (Math.random() * 0.55 + 0.75).toFixed(2);
+        const delay = (Math.random() * 0.25).toFixed(2);
+        const drift = (Math.random() * 80 - 40).toFixed(0);
+
+        b.style.width = `${size}px`;
+        b.style.height = `${size}px`;
+        b.style.left = `${left}%`;
+        b.style.setProperty('--dur', `${dur}s`);
+        b.style.setProperty('--drift', `${drift}px`);
+        b.style.animationDelay = `${delay}s`;
+
+        washBubblesLayer.appendChild(b);
+      }
+    }
+
+    function triggerBurst() {
+      // 1. 3D 水環與核心縮放爆發
+      fxGroup.removeAttribute('animation__burst');
+      setTimeout(() => {
+        fxGroup.setAttribute('animation__burst', {
+          property: 'scale',
+          from: '1 1 1',
+          to: '1.42 1.42 1.42',
+          dur: 260,
+          dir: 'alternate',
+          loop: 1,
+          easing: 'easeOutBack'
+        });
+      }, 10);
+
+      // 2. 卡片隨水浪上下波動
+      cardPlane.removeAttribute('animation__washshake');
+      setTimeout(() => {
+        cardPlane.setAttribute('animation__washshake', {
+          property: 'position',
+          from: '0 -0.04 0',
+          to: '0 0.05 0',
+          dur: 180,
+          dir: 'alternate',
+          loop: 2,
+          easing: 'easeInOutSine'
+        });
+      }, 10);
+
+      // 3. 中央藍色發光數字橫幅
+      burstOverlay.classList.remove('show');
+      void burstOverlay.offsetWidth;
+      burstOverlay.classList.add('show');
+
+      // 4. 全畫面水流沖刷雙層波浪
+      triggerWashWave();
+    }
+
+    document.getElementById('btn-trigger').addEventListener('click', triggerBurst);
+    cardPlane.addEventListener('click', () => {
+      if (!hasDragged) triggerBurst();
+    });
+
+    // ==========================================
+    // 4. 實景相機 + 「手機移動、卡片跟著動」慣性追蹤引擎
+    // ==========================================
+    const cameraFeed = document.getElementById('ar-camera-feed');
+    const btnArToggle = document.getElementById('btn-ar-toggle');
+    const btnRecenter = document.getElementById('btn-recenter');
+    const motionRig = document.getElementById('motion-rig');
+
+    let isArMode = false;
+    let cameraStream = null;
+    let gyroActive = false;
+
+    // 陀螺儀基準角
+    let baseAlpha = null;
+    let baseBeta = null;
+    let baseGamma = null;
+
+    // 目標與當前平滑插值座標/角度（受安全邊界限制，卡片永遠不會跑出畫面外）
+    let targetPos = { x: 0, y: 0, z: 0 };
+    let currentPos = { x: 0, y: 0, z: 0 };
+    let targetRot = { x: 0, y: 0, z: 0 };
+    let currentRot = { x: 0, y: 0, z: 0 };
+
+    // 觸控拖曳輔助角度
+    let dragRot = { x: 0, y: 0 };
+    let isDragging = false;
+    let hasDragged = false;
+    let touchStart = { x: 0, y: 0 };
+
+    function shortestAngleDiff(current, base) {
+      let diff = current - base;
+      while (diff > 180) diff -= 360;
+      while (diff < -180) diff += 360;
+      return diff;
+    }
+
+    function clamp(val, min, max) {
+      return Math.max(min, Math.min(max, val));
+    }
+
+    function recenterCard(silent = false) {
+      baseAlpha = null;
+      baseBeta = null;
+      baseGamma = null;
+      dragRot = { x: 0, y: 0 };
+      targetPos = { x: 0, y: 0, z: 0 };
+      targetRot = { x: 0, y: 0, z: 0 };
+      if (!silent) {
+        showToast('🎯 已將卡片重新校正至畫面正中央！', 2000);
+      }
+    }
+
+    btnRecenter.addEventListener('click', () => recenterCard(false));
+
+    function onDeviceOrientation(e) {
+      if (e.alpha === null || e.beta === null || e.gamma === null) return;
+      gyroActive = true;
+
+      if (baseAlpha === null) {
+        baseAlpha = e.alpha;
+        baseBeta = e.beta;
+        baseGamma = e.gamma;
+      }
+
+      const dAlpha = shortestAngleDiff(e.alpha, baseAlpha);
+      const dBeta = clamp(e.beta - baseBeta, -55, 55);
+      const dGamma = clamp(e.gamma - baseGamma, -55, 55);
+
+      if (isArMode) {
+        // 實景 AR 模式：手機左右/上下轉動時，卡片產生自然的空間懸浮視差並緊跟鏡頭視野
+        const panX = clamp(Math.sin((dAlpha * Math.PI) / 180) * 0.72 - dGamma * 0.004, -0.42, 0.42);
+        const panY = clamp(-dBeta * 0.0075, -0.34, 0.34);
+
+        targetPos.x = panX;
+        targetPos.y = panY;
+        targetPos.z = 0;
+
+        targetRot.x = clamp(dBeta * 0.38 + dragRot.x, -38, 38);
+        targetRot.y = clamp(dAlpha * 0.45 + dGamma * 0.3 + dragRot.y, -48, 48);
+        targetRot.z = clamp(-dGamma * 0.18, -20, 20);
+      } else {
+        // 3D 預覽模式：傾斜手機時卡片呈現立體浮動視差
+        targetPos.x = clamp(dGamma * 0.003, -0.18, 0.18);
+        targetPos.y = clamp(-dBeta * 0.0028, -0.16, 0.16);
+        targetPos.z = 0;
+
+        targetRot.x = clamp(dBeta * 0.35 + dragRot.x, -35, 35);
+        targetRot.y = clamp(dGamma * 0.45 + dragRot.y, -45, 45);
+        targetRot.z = clamp(-dGamma * 0.14, -18, 18);
+      }
+    }
+
+    async function enableGyroscope() {
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission === 'granted') {
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+            return true;
+          }
+          return false;
+        } catch (_) {
+          return false;
+        }
+      } else if (typeof window !== 'undefined' && 'ondeviceorientation' in window) {
+        window.addEventListener('deviceorientation', onDeviceOrientation, true);
+        return true;
+      }
+      return false;
+    }
+
+    // Android 裝置自動啟用陀螺儀；iOS 於首次點擊螢幕時自動請求權限
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission !== 'function') {
+      window.addEventListener('deviceorientation', onDeviceOrientation, true);
+    } else {
+      window.addEventListener('touchend', () => {
+        if (!gyroActive) enableGyroscope();
+      }, { once: true });
+    }
+
+    // 單指觸控滑動旋轉卡片
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        hasDragged = false;
+        touchStart.x = e.touches[0].clientX;
+        touchStart.y = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isDragging || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - touchStart.x;
+      const dy = e.touches[0].clientY - touchStart.y;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        hasDragged = true;
+      }
+      dragRot.y = clamp(dragRot.y + dx * 0.28, -45, 45);
+      dragRot.x = clamp(dragRot.x + dy * 0.28, -35, 35);
+
+      if (!gyroActive) {
+        targetRot.x = dragRot.x;
+        targetRot.y = dragRot.y;
+      }
+
+      touchStart.x = e.touches[0].clientX;
+      touchStart.y = e.touches[0].clientY;
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => {
+      isDragging = false;
+      setTimeout(() => { hasDragged = false; }, 60);
+    }, { passive: true });
+
+    // 60FPS 平滑慣性跟隨迴圈
+    function animateMotion() {
+      const damping = 0.14;
+      currentPos.x += (targetPos.x - currentPos.x) * damping;
+      currentPos.y += (targetPos.y - currentPos.y) * damping;
+      currentPos.z += (targetPos.z - currentPos.z) * damping;
+
+      currentRot.x += (targetRot.x - currentRot.x) * damping;
+      currentRot.y += (targetRot.y - currentRot.y) * damping;
+      currentRot.z += (targetRot.z - currentRot.z) * damping;
+
+      if (motionRig && motionRig.object3D) {
+        motionRig.object3D.position.set(currentPos.x, currentPos.y, currentPos.z);
+        motionRig.object3D.rotation.set(
+          THREE.MathUtils.degToRad(currentRot.x),
+          THREE.MathUtils.degToRad(currentRot.y),
+          THREE.MathUtils.degToRad(currentRot.z)
+        );
+      }
+      requestAnimationFrame(animateMotion);
+    }
+    requestAnimationFrame(animateMotion);
+
+    // 停止相機串流
+    function stopRearCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+      cameraFeed.srcObject = null;
+      cameraFeed.style.display = 'none';
+    }
+
+    // 切換實景 AR 模式
+    btnArToggle.addEventListener('click', async () => {
+      if (!isArMode) {
+        try {
+          btnArToggle.textContent = '啟動鏡頭中...';
+
+          // 1. 在使用者點擊當下請求陀螺儀權限
+          await enableGyroscope();
+          recenterCard(true);
+
+          // 2. 請求後方實景相機
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('CAMERA_UNSUPPORTED');
+          }
+
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+
+          cameraFeed.srcObject = cameraStream;
+          await cameraFeed.play();
+          cameraFeed.style.display = 'block';
+
+          isArMode = true;
+          document.body.classList.add('ar-active');
+          btnArToggle.textContent = '⬛ 關閉實景 AR';
+          btnArToggle.classList.add('active');
+          btnRecenter.style.display = 'flex';
+
+          showToast('📷 實景 AR 已啟動！移動手機，卡片與水環會跟著懸浮轉動！');
+        } catch (err) {
+          stopRearCamera();
+          isArMode = false;
+          document.body.classList.remove('ar-active');
+          btnArToggle.textContent = '📷 開啟實景 AR';
+          btnArToggle.classList.remove('active');
+          btnRecenter.style.display = 'none';
+          showToast('⚠️ 無法開啟相機（請確認使用 Safari 或 Chrome 並允許相機權限），目前維持 3D 互動模式。');
+        }
+      } else {
+        stopRearCamera();
+        isArMode = false;
+        document.body.classList.remove('ar-active');
+        btnArToggle.textContent = '📷 開啟實景 AR';
+        btnArToggle.classList.remove('active');
+        btnRecenter.style.display = 'none';
+        recenterCard(true);
+        showToast('已切換回 3D 預覽模式', 2000);
+      }
+    });
+
+    // 重置按鈕：重整氣泡、置中卡片並觸發一次水能量沖刷
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      createBubbles();
+      recenterCard(true);
+      triggerBurst();
+    });
+  </script>
+</body>
+</html>
