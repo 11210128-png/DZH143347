@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>泡泡水能量 AR</title>
+  <!-- 載入 A-Frame 與 MindAR 影像辨識框架 -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #05080f;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", "Noto Sans TC", sans-serif;
+      color: #fff;
+    }
+
+    /* 左上角標題徽章 */
+    #top-left-badge {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 25, 40, 0.85);
+      border: 1px solid rgba(0, 210, 255, 0.35);
+      padding: 8px 16px 8px 10px;
+      border-radius: 12px;
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+    }
+    .badge-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00d2ff, #0066ff);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 12px rgba(0, 210, 255, 0.7);
+    }
+    .badge-title { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; }
+    .badge-sub { font-size: 10px; color: #66d9ff; letter-spacing: 1px; margin-top: 2px; }
+
+    /* 右上角控制按鈕區 */
+    #top-right-controls {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+    .top-btn {
+      background: rgba(15, 25, 40, 0.85);
+      border: 1px solid rgba(0, 210, 255, 0.45);
+      color: #66e0ff;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(8px);
+      transition: all 0.2s;
+    }
+    .top-btn:hover { background: rgba(0, 150, 255, 0.25); }
+    .top-btn.active {
+      background: #00aaff;
+      color: #001122;
+      box-shadow: 0 0 15px rgba(0, 170, 255, 0.8);
+    }
+
+    /* ==========================================
+       系統提示訊息框（取代原生 alert）
+       ========================================== */
+    #toast-message {
+      position: fixed;
+      top: 76px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-10px);
+      background: rgba(10, 24, 42, 0.94);
+      border: 1px solid rgba(0, 210, 255, 0.65);
+      color: #d8f8ff;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: center;
+      max-width: 90vw;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 195, 255, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 1100;
+    }
+    #toast-message.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ==========================================
+       全螢幕水流「沖刷」波浪特效層
+       ========================================== */
+    #wash-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 900;
+      overflow: hidden;
+    }
+
+    .wash-wave {
+      position: absolute;
+      left: -10%;
+      width: 120%;
+      height: 130vh;
+      bottom: -140vh;
+      background: linear-gradient(
+        180deg,
+        rgba(220, 252, 255, 0.85) 0%,
+        rgba(56, 214, 255, 0.55) 8%,
+        rgba(0, 145, 255, 0.35) 35%,
+        rgba(0, 90, 200, 0.15) 75%,
+        transparent 100%
+      );
+      border-top: 4px solid #ffffff;
+      border-radius: 45% 48% 0 0 / 60px 80px 0 0;
+      box-shadow:
+        0 -15px 40px rgba(0, 225, 255, 0.8),
+        inset 0 20px 50px rgba(255, 255, 255, 0.65);
+      opacity: 0;
+    }
+
+    .wash-wave.secondary {
+      border-radius: 52% 42% 0 0 / 75px 50px 0 0;
+      background: linear-gradient(
+        180deg,
+        rgba(140, 245, 255, 0.6) 0%,
+        rgba(0, 175, 255, 0.3) 25%,
+        transparent 80%
+      );
+      border-top: 2px solid rgba(180, 250, 255, 0.8);
+    }
+
+    #wash-overlay.washing .wash-wave.primary {
+      animation: waveWashUp 1.15s cubic-bezier(0.22, 0.8, 0.36, 1) forwards;
+    }
+
+    #wash-overlay.washing .wash-wave.secondary {
+      animation: waveWashUp 1.3s cubic-bezier(0.22, 0.8, 0.36, 1) 0.12s forwards;
+    }
+
+    @keyframes waveWashUp {
+      0% {
+        bottom: -135vh;
+        opacity: 0.95;
+        transform: rotate(-1.5deg);
+      }
+      50% {
+        opacity: 0.9;
+        transform: rotate(1.5deg);
+      }
+      100% {
+        bottom: 115vh;
+        opacity: 0;
+        transform: rotate(-1deg);
+      }
+    }
+
+    /* 沖刷時伴隨上衝的氣泡群 */
+    .wash-bubble {
+      position: absolute;
+      bottom: -30px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #ffffff, rgba(120, 240, 255, 0.5) 60%, rgba(0, 160, 255, 0.8));
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      box-shadow: 0 0 10px rgba(0, 220, 255, 0.8);
+      animation: bubbleSurge var(--dur, 1.1s) ease-out forwards;
+    }
+
+    @keyframes bubbleSurge {
+      0% {
+        transform: translateY(0) scale(0.5);
+        opacity: 0;
+      }
+      20% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(-115vh) translateX(var(--drift, 20px)) scale(1.2);
+        opacity: 0;
+      }
+    }
+
+    /* ==========================================
+       中央藍色數字與招式爆發特效橫幅
+       ========================================== */
+    #burst-overlay {
+      position: fixed;
+      top: 47%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.6);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 950;
+      width: 100%;
+      text-align: center;
+    }
+
+    #burst-overlay.show {
+      animation: burstPop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .burst-main-text {
+      font-size: clamp(32px, 6.5vw, 58px);
+      font-weight: 900;
+      letter-spacing: 3px;
+      color: #e6fbff;
+      text-shadow:
+        0 0 12px #00e5ff,
+        0 0 28px #0099ff,
+        0 0 50px #0066ff,
+        0 4px 10px rgba(0, 15, 35, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      white-space: nowrap;
+    }
+
+    .burst-drop {
+      color: #38d6ff;
+      filter: drop-shadow(0 0 12px #00c8ff);
+      font-size: 0.95em;
+    }
+
+    .burst-sub-pill {
+      margin-top: 8px;
+      padding: 6px 20px;
+      background: rgba(6, 18, 32, 0.88);
+      border: 1.5px solid rgba(56, 214, 255, 0.65);
+      border-radius: 999px;
+      font-size: clamp(12px, 2.2vw, 15px);
+      font-weight: 800;
+      letter-spacing: 2.5px;
+      color: #70ebff;
+      box-shadow: 0 0 18px rgba(0, 195, 255, 0.55);
+    }
+
+    @keyframes burstPop {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.45);
+      }
+      12% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.12);
+      }
+      22% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      78% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.02);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -56%) scale(1.08);
+      }
+    }
+
+    /* 底部主控發動按鈕與提示 */
+    #bottom-controls {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+      width: 90%;
+      max-width: 360px;
+    }
+    #btn-trigger {
+      width: 100%;
+      padding: 14px 24px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #031526;
+      background: linear-gradient(90deg, #4df0ff, #00aaff);
+      border: none;
+      border-radius: 14px;
+      box-shadow: 0 0 25px rgba(0, 200, 255, 0.65);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.15s;
+    }
+    #btn-trigger:active { transform: scale(0.96); }
+    .hint-pill {
+      background: rgba(15, 25, 40, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      color: #b8d8eb;
+      text-align: center;
+    }
+    .hint-pill span { color: #4df0ff; font-weight: bold; }
+
+    .mindar-ui-loading, .mindar-ui-compatibility { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- 左上角標題徽章 -->
+  <div id="top-left-badge">
+    <div class="badge-icon">💧</div>
+    <div>
+      <div class="badge-title">泡泡水能量 AR</div>
+      <div class="badge-sub">BUBBLE WATER ENERGY v1.0</div>
+    </div>
+  </div>
+
+  <!-- 右上角控制按鈕 -->
+  <div id="top-right-controls">
+    <button id="btn-ar-toggle" class="top-btn">📷 開啟實景 AR</button>
+    <button id="btn-reset" class="top-btn" title="重置特效">↻</button>
+  </div>
+
+  <!-- 提示訊息框 -->
+  <div id="toast-message"></div>
+
+  <!-- 水流沖刷特效層 -->
+  <div id="wash-overlay">
+    <div class="wash-wave primary"></div>
+    <div class="wash-wave secondary"></div>
+    <div id="wash-bubbles-layer"></div>
+  </div>
+
+  <!-- 中央藍色數字爆發橫幅 -->
+  <div id="burst-overlay">
+    <div class="burst-main-text">
+      <span class="burst-drop">💧</span>
+      <span id="burst-number">100,000 PSI</span>
+      <span class="burst-drop">💧</span>
+    </div>
+    <div class="burst-sub-pill" id="burst-sub">BUBBLE WASH · STATUS CURED</div>
+  </div>
+
+  <!-- 底部操作按鈕 -->
+  <div id="bottom-controls">
+    <button id="btn-trigger">🌊 發動水能量・泡泡沖刷</button>
+    <div class="hint-pill">👆 在畫面中<span>「用手指點擊卡片」</span>即可發動！</div>
+  </div>
+
+  <!-- 離屏高解析卡牌畫布 -->
+  <canvas id="card-canvas" width="734" height="1024" style="display:none;"></canvas>
+
+  <!-- A-Frame 與 MindAR 3D 場景 -->
+  <a-scene
+    id="ar-scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: no; uiScanning: no;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights: true, alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    cursor="rayOrigin: mouse"
+    raycaster="objects: .clickable">
+
+    <a-camera position="0 0 2.2" look-controls="enabled: false"></a-camera>
+
+    <a-light type="ambient" color="#ffffff" intensity="1.1"></a-light>
+    <a-light id="core-light" type="point" color="#00e5ff" intensity="2.5" distance="5" position="0 0 0.8"></a-light>
+
+    <!-- 3D 預覽舞台（預設模式） -->
+    <a-entity id="preview-stage" position="0 0.14 0">
+      <a-plane id="card-plane" class="clickable" width="1.22" height="1.702"
+               material="shader: flat; side: double;"
+               animation__idle="property: rotation; from: -3 -5 0; to: 3 5 0; dir: alternate; loop: true; dur: 3500; easing: easeInOutSine">
+      </a-plane>
+
+      <!-- 懸浮水能量 3D 特效群組 -->
+      <a-entity id="fx-group" position="0 0 0.06">
+        <a-sphere id="water-core" radius="0.3" color="#ffffff"
+                  material="shader: flat; opacity: 0.35; transparent: true"
+                  animation="property: scale; from: 0.94 0.94 0.94; to: 1.06 1.06 1.06; dir: alternate; loop: true; dur: 1400; easing: easeInOutSine">
+        </a-sphere>
+
+        <a-entity id="water-drop-icon" position="0 0.06 0.1"
+                  animation="property: rotation; from: 0 -18 0; to: 0 18 0; dir: alternate; loop: true; dur: 2200; easing: easeInOutSine">
+          <a-sphere radius="0.12" position="0 -0.05 0" color="#0077ee"
+                    material="metalness: 0.8; roughness: 0.15; emissive: #0099ff; emissive-intensity: 0.7"></a-sphere>
+          <a-cone radius-bottom="0.118" radius-top="0.005" height="0.22" position="0 0.07 0" color="#0077ee"
+                  material="metalness: 0.8; roughness: 0.15; emissive: #0099ff; emissive-intensity: 0.7"></a-cone>
+        </a-entity>
+
+        <a-torus id="orbit-1" radius="0.72" radius-tubular="0.008" rotation="65 25 0" color="#80f0ff"
+                 material="shader: flat; opacity: 0.9; transparent: true"
+                 animation="property: rotation; from: 65 25 0; to: 65 25 360; loop: true; dur: 4500; easing: linear">
+        </a-torus>
+
+        <a-torus id="orbit-2" radius="0.72" radius-tubular="0.008" rotation="-65 -25 0" color="#40c4ff"
+                 material="shader: flat; opacity: 0.9; transparent: true"
+                 animation="property: rotation; from: -65 -25 0; to: -65 -25 -360; loop: true; dur: 5200; easing: linear">
+        </a-torus>
+
+        <a-entity id="bubble-particles"></a-entity>
+      </a-entity>
+    </a-entity>
+
+    <!-- MindAR 實景追蹤目標節點 -->
+    <a-entity id="ar-target" mindar-image-target="targetIndex: 0"></a-entity>
+  </a-scene>
+
+  <script>
+    const sceneEl = document.getElementById('ar-scene');
+    const previewStage = document.getElementById('preview-stage');
+    const arTarget = document.getElementById('ar-target');
+    const fxGroup = document.getElementById('fx-group');
+    const bubbleContainer = document.getElementById('bubble-particles');
+    const cameraEl = document.querySelector('a-camera');
+    const btnArToggle = document.getElementById('btn-ar-toggle');
+    const cardPlane = document.getElementById('card-plane');
+    const burstOverlay = document.getElementById('burst-overlay');
+    const washOverlay = document.getElementById('wash-overlay');
+    const washBubblesLayer = document.getElementById('wash-bubbles-layer');
+    const toastEl = document.getElementById('toast-message');
+
+    let toastTimer = null;
+    function showToast(msg, duration = 3600) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove('visible');
+      }, duration);
+    }
+
+    // ==========================================
+    // 繪製水滴符號
+    // ==========================================
+    function drawWaterIcon(ctx, cx, cy, scale) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.beginPath();
+      ctx.moveTo(4, -22);
+      ctx.bezierCurveTo(22, 0, 18, 22, 0, 22);
+      ctx.bezierCurveTo(-18, 22, -20, 2, 4, -22);
+      ctx.fillStyle = '#080e14';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(-3, 12, 6, 3, -0.35, 0, Math.PI * 2);
+      ctx.fillStyle = '#24a8f0';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ==========================================
+    // 繪製玻璃質感氣泡
+    // ==========================================
+    function drawGlassBubble(ctx, x, y, r, angle = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      grad.addColorStop(0, 'rgba(200, 248, 255, 0.7)');
+      grad.addColorStop(0.55, 'rgba(30, 165, 235, 0.55)');
+      grad.addColorStop(0.88, 'rgba(10, 75, 130, 0.85)');
+      grad.addColorStop(1, 'rgba(210, 250, 255, 0.9)');
+
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r, r * 0.88, 0, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(220, 252, 255, 0.75)';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.38, -r * 0.32, r * 0.25, r * 0.12, -0.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ==========================================
+    // 建構高精細度「バブルエネルギー」卡牌貼圖
+    // ==========================================
+    function buildHighDetailCard() {
+      const canvas = document.getElementById('card-canvas');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+
+      // 外框銀灰漸層
+      const borderGrad = ctx.createLinearGradient(0, 0, w, h);
+      borderGrad.addColorStop(0, '#e3e8ec');
+      borderGrad.addColorStop(0.5, '#c5cdd4');
+      borderGrad.addColorStop(1, '#dce2e7');
+      ctx.fillStyle = borderGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      const innerX = 24, innerY = 24, innerW = w - 48, innerH = h - 48;
+      ctx.fillStyle = '#dde4ea';
+      ctx.fillRect(innerX, innerY, innerW, innerH);
+
+      // 中央卡圖背景
+      const artX = 34, artY = 148, artW = w - 68, artH = 445;
+      const bgGrad = ctx.createLinearGradient(artX, artY, artX + artW, artY);
+      bgGrad.addColorStop(0, '#c8e6f5');
+      bgGrad.addColorStop(0.2, '#1d88c7');
+      bgGrad.addColorStop(0.5, '#072a4a');
+      bgGrad.addColorStop(0.8, '#1d88c7');
+      bgGrad.addColorStop(1, '#c8e6f5');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(artX, artY, artW, artH);
+
+      // 水平水波光帶
+      const stripes = [
+        { y: 170, h: 18, c: 'rgba(255,255,255,0.45)' },
+        { y: 215, h: 30, c: 'rgba(130,220,255,0.35)' },
+        { y: 280, h: 24, c: 'rgba(15,85,145,0.55)' },
+        { y: 340, h: 42, c: 'rgba(190,240,255,0.4)' },
+        { y: 410, h: 26, c: 'rgba(10,60,115,0.5)' },
+        { y: 470, h: 35, c: 'rgba(160,230,255,0.45)' },
+        { y: 535, h: 28, c: 'rgba(255,255,255,0.35)' }
+      ];
+      stripes.forEach(s => {
+        ctx.fillStyle = s.c;
+        ctx.fillRect(artX, s.y, artW, s.h);
+      });
+
+      // 旋渦光環
+      const cx = w / 2, cy = artY + artH / 2 + 4;
+      for (let i = 0; i < 6; i++) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(i * 0.55);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 235 - i * 8, 195 + i * 6, 0.3, 0, Math.PI * 2);
+        ctx.lineWidth = 14 - i * 1.5;
+        ctx.strokeStyle = i % 2 === 0 ? 'rgba(235, 248, 255, 0.65)' : 'rgba(20, 110, 175, 0.55)';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 中央水能量核心球體
+      const coreR = 165;
+      const coreGrad = ctx.createRadialGradient(cx - 35, cy - 35, 15, cx, cy, coreR);
+      coreGrad.addColorStop(0, '#5ce1ff');
+      coreGrad.addColorStop(0.55, '#139be8');
+      coreGrad.addColorStop(0.88, '#085b9e');
+      coreGrad.addColorStop(1, '#e1f7ff');
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.fillStyle = coreGrad;
+      ctx.fill();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(240, 252, 255, 0.85)';
+      ctx.stroke();
+
+      // 核心水滴圖騰
+      ctx.save();
+      ctx.translate(cx, cy + 4);
+      ctx.beginPath();
+      ctx.moveTo(42, -118);
+      ctx.bezierCurveTo(132, -5, 112, 112, -2, 112);
+      ctx.bezierCurveTo(-110, 112, -115, 12, 42, -118);
+      ctx.fillStyle = '#070d12';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(-18, 65, 34, 15, -0.25, 0, Math.PI * 2);
+      ctx.fillStyle = '#22a8f2';
+      ctx.fill();
+      ctx.restore();
+
+      // 周圍玻璃泡泡群
+      drawGlassBubble(ctx, 112, 212, 56, -0.4);
+      drawGlassBubble(ctx, 68, 305, 42, 0.2);
+      drawGlassBubble(ctx, 628, 225, 48, 0.5);
+      drawGlassBubble(ctx, 658, 305, 32, -0.2);
+      drawGlassBubble(ctx, 122, 495, 58, 0.35);
+      drawGlassBubble(ctx, 615, 498, 62, -0.4);
+      drawGlassBubble(ctx, 668, 412, 34, 0.1);
+
+      // 頂部標籤列
+      const topBarGrad = ctx.createLinearGradient(0, 24, 0, 68);
+      topBarGrad.addColorStop(0, '#b8c2ca');
+      topBarGrad.addColorStop(0.5, '#8f9ba5');
+      topBarGrad.addColorStop(1, '#aeb8c0');
+      ctx.fillStyle = topBarGrad;
+      ctx.fillRect(innerX, innerY, innerW, 44);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 21px "Noto Sans JP", sans-serif';
+      ctx.fillText('特殊エネルギー', 44, 54);
+      ctx.fillText('エネルギー', 568, 54);
+
+      // 卡牌標題列
+      const titleGrad = ctx.createLinearGradient(0, 68, 0, 148);
+      titleGrad.addColorStop(0, '#eef2f5');
+      titleGrad.addColorStop(1, '#cfd7de');
+      ctx.fillStyle = titleGrad;
+      ctx.fillRect(innerX, 68, innerW, 80);
+
+      ctx.fillStyle = '#11161b';
+      ctx.font = 'bold 13px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 193, 86);
+
+      ctx.font = '900 38px "Noto Sans JP", sans-serif';
+      ctx.fillText('バブル', 54, 126);
+      drawWaterIcon(ctx, 206, 113, 0.85);
+      ctx.fillText('エネルギー', 234, 126);
+
+      // 右上角屬性徽章
+      ctx.beginPath();
+      ctx.arc(668, 108, 30, 0, Math.PI * 2);
+      const badgeGrad = ctx.createRadialGradient(660, 100, 4, 668, 108, 30);
+      badgeGrad.addColorStop(0, '#70e1ff');
+      badgeGrad.addColorStop(1, '#0c8ce0');
+      ctx.fillStyle = badgeGrad;
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      drawWaterIcon(ctx, 668, 108, 0.95);
+
+      // 下方效果說明框
+      const textBoxY = 593, textBoxH = 342;
+      const boxGrad = ctx.createLinearGradient(0, textBoxY, 0, textBoxY + textBoxH);
+      boxGrad.addColorStop(0, '#eef2f5');
+      boxGrad.addColorStop(1, '#dce2e7');
+      ctx.fillStyle = boxGrad;
+      ctx.fillRect(innerX, textBoxY, innerW, textBoxH);
+
+      ctx.strokeStyle = '#9aa5b0';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(innerX + 2, textBoxY + 2, innerW - 4, textBoxH - 4);
+
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('このカードは、ポケモンについているかぎり、', 54, 672);
+
+      ctx.font = 'bold 11px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 55, 687);
+      drawWaterIcon(ctx, 66, 704, 0.52);
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('エネルギー1個ぶんとしてはたらく。', 82, 712);
+
+      ctx.fillText('このカードをつけている', 54, 778);
+      ctx.font = 'bold 11px "Noto Sans JP", sans-serif';
+      ctx.fillText('みず', 313, 753);
+      drawWaterIcon(ctx, 324, 770, 0.52);
+      ctx.font = 'bold 23px "Noto Sans JP", sans-serif';
+      ctx.fillText('ポケモンは、特殊状態にならず、', 340, 778);
+
+      ctx.fillText('受けている特殊状態は、すべて回復する。', 54, 818);
+
+      // 底部編號與稀有度列
+      ctx.fillStyle = '#cfd7de';
+      ctx.fillRect(innerX, 935, innerW, 65);
+
+      ctx.strokeStyle = '#141a20';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(42, 952, 26, 30);
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('J', 49, 975);
+
+      ctx.fillStyle = '#141a20';
+      ctx.fillRect(78, 954, 46, 26);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 17px sans-serif';
+      ctx.fillText('M4', 87, 973);
+
+      ctx.fillStyle = '#141a20';
+      ctx.font = 'bold 21px sans-serif';
+      ctx.fillText('082/083  R', 138, 975);
+
+      ctx.beginPath();
+      ctx.arc(672, 966, 17, 0, Math.PI * 2);
+      ctx.fillStyle = '#139be8';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      drawWaterIcon(ctx, 672, 966, 0.55);
+
+      // 套用 Canvas 貼圖至 3D 卡片
+      const applyTex = (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const mesh = cardPlane.getObject3D('mesh');
+        if (mesh) {
+          mesh.material.map = tex;
+          mesh.material.needsUpdate = true;
+        }
+      };
+
+      const canvasTex = new THREE.CanvasTexture(canvas);
+      applyTex(canvasTex);
+
+      // 若部署環境存在自訂卡圖（./images.jpg 或 ./images_2.jpg），則自動載入替換，無檔案時不產生 404 錯誤
+      const tryLoadOptionalImage = async (url) => {
+        try {
+          const res = await fetch(url, { method: 'HEAD' });
+          if (res.ok && res.headers.get('content-type')?.startsWith('image/')) {
+            new THREE.TextureLoader().load(url, applyTex);
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      };
+
+      (async () => {
+        const loadedPrimary = await tryLoadOptionalImage('./images.jpg');
+        if (!loadedPrimary) {
+          await tryLoadOptionalImage('./images_2.jpg');
+        }
+      })();
+    }
+
+    if (cardPlane.hasLoaded) {
+      buildHighDetailCard();
+    } else {
+      cardPlane.addEventListener('loaded', buildHighDetailCard);
+    }
+
+    // ==========================================
+    // 生成背景漂浮的 75 顆 3D 氣泡粒子
+    // ==========================================
+    function createBubbles() {
+      bubbleContainer.innerHTML = '';
+      for (let i = 0; i < 75; i++) {
+        const bubble = document.createElement('a-sphere');
+        const radius = (Math.random() * 0.018 + 0.005).toFixed(4);
+        const x = (Math.random() * 1.6 - 0.8).toFixed(2);
+        const yStart = (Math.random() * 1.4 - 0.8).toFixed(2);
+        const yEnd = (parseFloat(yStart) + 0.5 + Math.random() * 0.5).toFixed(2);
+        const z = (Math.random() * 0.4 - 0.1).toFixed(2);
+        const dur = Math.floor(Math.random() * 2500 + 2000);
+        const color = Math.random() > 0.3 ? '#80f5ff' : '#ffffff';
+
+        bubble.setAttribute('radius', radius);
+        bubble.setAttribute('position', `${x} ${yStart} ${z}`);
+        bubble.setAttribute('color', color);
+        bubble.setAttribute('material', 'shader: flat; opacity: 0.75; transparent: true');
+        bubble.setAttribute('animation__rise', {
+          property: 'position',
+          from: `${x} ${yStart} ${z}`,
+          to: `${x} ${yEnd} ${z}`,
+          dur: dur,
+          loop: true,
+          dir: 'alternate',
+          easing: 'easeInOutSine'
+        });
+        bubbleContainer.appendChild(bubble);
+      }
+    }
+    createBubbles();
+
+    // ==========================================
+    // 生成「沖刷」水波與 32 顆上衝泡沫
+    // ==========================================
+    function triggerWashWave() {
+      washOverlay.classList.remove('washing');
+      void washOverlay.offsetWidth;
+      washOverlay.classList.add('washing');
+
+      washBubblesLayer.innerHTML = '';
+      for (let i = 0; i < 32; i++) {
+        const b = document.createElement('div');
+        b.className = 'wash-bubble';
+        const size = Math.floor(Math.random() * 24 + 8);
+        const left = Math.random() * 100;
+        const dur = (Math.random() * 0.55 + 0.75).toFixed(2);
+        const delay = (Math.random() * 0.25).toFixed(2);
+        const drift = (Math.random() * 80 - 40).toFixed(0);
+
+        b.style.width = `${size}px`;
+        b.style.height = `${size}px`;
+        b.style.left = `${left}%`;
+        b.style.setProperty('--dur', `${dur}s`);
+        b.style.setProperty('--drift', `${drift}px`);
+        b.style.animationDelay = `${delay}s`;
+
+        washBubblesLayer.appendChild(b);
+      }
+    }
+
+    // ==========================================
+    // 觸發能量爆發 + 水流沖刷 + 藍色數字橫幅
+    // ==========================================
+    function triggerBurst() {
+      // 1. 3D 特效縮放爆發
+      fxGroup.removeAttribute('animation__burst');
+      setTimeout(() => {
+        fxGroup.setAttribute('animation__burst', {
+          property: 'scale',
+          from: '1 1 1',
+          to: '1.45 1.45 1.45',
+          dur: 260,
+          dir: 'alternate',
+          loop: 1,
+          easing: 'easeOutBack'
+        });
+      }, 10);
+
+      // 2. 卡片跟隨水浪輕微上浮晃動
+      cardPlane.removeAttribute('animation__washshake');
+      setTimeout(() => {
+        cardPlane.setAttribute('animation__washshake', {
+          property: 'position',
+          from: '0 -0.04 0',
+          to: '0 0.05 0',
+          dur: 180,
+          dir: 'alternate',
+          loop: 2,
+          easing: 'easeInOutSine'
+        });
+      }, 10);
+
+      // 3. 藍色發光數字橫幅
+      burstOverlay.classList.remove('show');
+      void burstOverlay.offsetWidth;
+      burstOverlay.classList.add('show');
+
+      // 4. 觸發全畫面水流沖刷波浪
+      triggerWashWave();
+    }
+
+    document.getElementById('btn-trigger').addEventListener('click', triggerBurst);
+    cardPlane.addEventListener('click', triggerBurst);
+
+    // ==========================================
+    // 實景 AR 模式切換（支援優雅降級與錯誤提示）
+    // ==========================================
+    let isArMode = false;
+    btnArToggle.addEventListener('click', async () => {
+      const arSystem = sceneEl.systems['mindar-image-system'];
+      if (!isArMode) {
+        try {
+          btnArToggle.textContent = '啟動鏡頭中...';
+
+          // 預先檢查 targets.mind 是否存在，避免 MindAR 在缺少追蹤檔時卡死
+          const targetCheck = await fetch('./targets.mind', { method: 'HEAD' }).catch(() => null);
+          if (!targetCheck || !targetCheck.ok) {
+            throw new Error('MISSING_TARGETS');
+          }
+
+          if (!arSystem) {
+            throw new Error('AR_UNAVAILABLE');
+          }
+
+          await arSystem.start();
+          isArMode = true;
+          btnArToggle.textContent = '⬛ 關閉實景 AR';
+          btnArToggle.classList.add('active');
+          document.body.style.backgroundColor = 'transparent';
+          cardPlane.setAttribute('visible', 'false');
+          cameraEl.setAttribute('position', '0 0 0');
+          arTarget.appendChild(fxGroup);
+          showToast('📷 已啟動實景 AR！請將鏡頭對準實體「バブルエネルギー」卡片');
+        } catch (err) {
+          btnArToggle.textContent = '📷 開啟實景 AR';
+          if (err && err.message === 'MISSING_TARGETS') {
+            showToast('ℹ️ 目前為 3D 預覽模式（尚未部署 targets.mind 辨識檔），您可直接點擊卡片體驗特效！');
+          } else {
+            showToast('⚠️ 無法開啟相機（預覽視窗受限或未允許權限），已維持 3D 互動預覽模式。');
+          }
+        }
+      } else {
+        try {
+          if (arSystem) arSystem.stop();
+        } catch (_) {}
+        isArMode = false;
+        btnArToggle.textContent = '📷 開啟實景 AR';
+        btnArToggle.classList.remove('active');
+        document.body.style.backgroundColor = '#05080f';
+        cardPlane.setAttribute('visible', 'true');
+        cameraEl.setAttribute('position', '0 0 2.2');
+        previewStage.appendChild(fxGroup);
+        showToast('已切換回 3D 卡片預覽模式');
+      }
+    });
+
+    // 重置並重新觸發特效
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      createBubbles();
+      triggerBurst();
+    });
+  </script>
+</body>
+</html>
